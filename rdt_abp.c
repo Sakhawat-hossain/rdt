@@ -61,7 +61,7 @@ void A_output(struct msg message)
 {
     int tempcs=0;
     //tempcs=seqNumCount+ackNumCount;
-    printf("A_output : acka -- %d  sendSeg -- %d\n",ackA,sendSeqNum);
+    printf("A_output : ack - %d, sSeg - %d, sAck - %d\n",ackA,sendSeqNum,sendAckNum);
     int i=0;
     if(ackA){
         while(message.data[i] !=0){
@@ -70,8 +70,8 @@ void A_output(struct msg message)
             i++;
         }
         sendpktA.seqnum=sendSeqNum;
-        sendpktA.acknum=sendAckNum;
-        sendpktA.checksum=tempcs+sendAckNum+sendSeqNum;
+        sendpktA.acknum=sendSeqNum;
+        sendpktA.checksum=tempcs+sendSeqNum+sendSeqNum;
         ackA=0;
         starttimer(0,1000);
         tolayer3(0,sendpktA);
@@ -87,26 +87,28 @@ void B_output(struct msg message)
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(struct pkt packet)
 {
-    printf("A_input : askA --- %d sendSeg -- %d\n",ackA,sendSeqNum);
+   //printf("A_input : ack - %d, sSeg - %d, sAck - %d\n",ackA,sendSeqNum,sendAckNum);
    int tempcs=0;
    if(ackA==0){
         tempcs=packet.acknum+packet.seqnum;
         int i=0;
 
-        printf("A_input : checksum 11 %d\n",tempcs);
+        //printf("A_input : checksum --- %d\n",tempcs);
+        //int i=0;
         while(packet.payload[i] !=0){
-            tempcs += 'A'+'C'+'K';
+            tempcs += (int)packet.payload[i];
             i++;
-            printf("%c\n",packet.payload[i-1]);
         }
-        printf("\nA_input : packet checksum %d\n",packet.checksum);
-        printf("A_input : checksum %d\n",tempcs);
+        //printf("A_input : packet checksum %d\n",packet.checksum);
+        //printf("A_input : checksum %d\n",tempcs);
 
         if((tempcs != packet.checksum) ){
-            printf("A_input : corrupt checksum : ACK --- %d sendSeg -- %d   %d\n",packet.acknum,sendSeqNum,packet.seqnum);
+            printf("A_input : corrupt checksum : sSeg - %d, snum - %d, ackn - %d\n",\
+                   sendSeqNum,packet.seqnum,packet.acknum);
         }
         else if((packet.acknum != sendSeqNum)){
-            printf("A_input : corrupt sendseg : ACK --- %d sendSeg -- %d   %d\n",packet.acknum,sendSeqNum,packet.seqnum);
+            printf("A_input : corrupt ack--send : sSeg - %d, snum - %d, ackn - %d\n",\
+                    sendSeqNum,packet.seqnum,packet.acknum);
         }
         else{
             printf("A_input : successful : askA --- %d sendSeg -- %d\n",ackA,sendSeqNum);
@@ -143,7 +145,7 @@ void A_init(void)
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 void B_input(struct pkt packet)
 {
-    printf("B_input : askA --- %d sendAck -- %d\n",ackA,sendAckNum);
+    //printf("B_input : askA --- %d sendAck -- %d\n",ackA,sendAckNum);
     int tempcs=0;
     tempcs=packet.acknum+packet.seqnum;
 
@@ -154,14 +156,20 @@ void B_input(struct pkt packet)
     }
 
     struct pkt pktB;
-    if((tempcs != packet.checksum) || (packet.seqnum != sendAckNum)){
+    pktB.payload[0]='A';
+        pktB.payload[1]='C';
+        pktB.payload[2]='K';
+        pktB.payload[3]=0;
+
+    if((tempcs != packet.checksum)){
 
         if((tempcs != packet.checksum) ){
-            printf("B_input : corrupt checksum : ACK --- %d sendack -- %d   %d\n",packet.acknum,sendAckNum,packet.seqnum);
+            printf("B_input : corrupt checksum : sAck - %d, snum - %d, ackn - %d\n",\
+                   sendAckNum,packet.seqnum,packet.acknum);
         }
-        else if((packet.seqnum != sendAckNum)){
-            printf("A_input : corrupt ack : ACK --- %d sendSeg -- %d   %d\n",packet.acknum,sendAckNum,packet.seqnum);
-        }
+        //if((packet.seqnum != sendAckNum)){
+
+        //}
 
         if(sendAckNum==0)
             pktB.acknum=1;
@@ -169,34 +177,46 @@ void B_input(struct pkt packet)
             pktB.acknum=0;
 
         pktB.seqnum=sendSeqNum;
-        pktB.checksum=sendAckNum+sendSeqNum+'A'+'C'+'K';
-        pktB.payload[0]='A';
-        pktB.payload[1]='C';
-        pktB.payload[2]='K';
-        pktB.payload[3]=0;
+        pktB.checksum=pktB.acknum+sendSeqNum+'A'+'C'+'K';
         tolayer3(1,pktB);
     }
-    else{
-        pktB.acknum=sendAckNum;
-
-            printf("B_input : successful : askA --- %d sendSeg -- %d\n",ackA,sendAckNum);
+    else if(packet.seqnum != sendAckNum){
         if(sendpktB.acknum==packet.acknum && sendpktB.checksum==packet.checksum && sendpktB.seqnum==packet.seqnum){
             printf("B_input : successful duplicate : askA --- %d sendSeg -- %d\n",ackA,sendAckNum);
         }
         else{
-             sendpktB=packet;
+            printf("B_input : ack corrupt : sAck - %d, snum - %d, ackn - %d\n",\
+                   sendAckNum,packet.seqnum,packet.acknum);
+        }
+        if(sendAckNum==0)
+            pktB.acknum=1;
+        else
+            pktB.acknum=0;
+
+        pktB.seqnum=sendSeqNum;
+        pktB.checksum=pktB.acknum+sendSeqNum+'A'+'C'+'K';
+        tolayer3(1,pktB);
+
+    }
+    else{
+        pktB.acknum=sendAckNum;
+
+            printf("B_input : successful : askA --- %d sendAck -- %d\n",ackA,sendAckNum);
+
+        //else{
+        sendpktB=packet;
             if(sendAckNum==0)
                 sendAckNum=1;
             else
                 sendAckNum=0;
-        }
+        //}
         pktB.seqnum=sendSeqNum;
-        pktB.checksum=sendAckNum+sendSeqNum+'A'+'C'+'K';
+        pktB.checksum=pktB.acknum+sendSeqNum+'A'+'C'+'K';
         pktB.payload[0]='A';
         pktB.payload[1]='C';
         pktB.payload[2]='K';
         pktB.payload[3]=0;
-        printf("B_input : checksum %d %d %d \n",pktB.checksum,sendAckNum,sendSeqNum);
+        //printf("B_input : checksum %d %d %d \n",pktB.checksum,sendAckNum,sendSeqNum);
         tolayer3(1,pktB);
     }
 }
