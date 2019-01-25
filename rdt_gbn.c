@@ -46,43 +46,67 @@ void tolayer3(int AorB, struct pkt packet);
 void tolayer5(int AorB, char datasent[20]);
 
 /********* STUDENTS WRITE THE NEXT SEVEN ROUTINES *********/
+#define NOT_PKT -1
+#define TIME_OUT 11
 
 char **buffer;
 int bufSize;
 int sendSeqNum;
 int lsegNum;
 int windowA;
+int avlwindowA;
 struct pkt *sendpktA;
 
-int ackA;
+int lastAckA;
 int sendAckNum;
+int lastAckB;
+int windowB;
 
 /* called from layer 5, passed the data to be sent to other side */
 void A_output(struct msg message)
 {
     int tempcs=0;
 
-    printf("A_output : ack - %d, sSeg - %d, sAck - %d\n",ackA,sendSeqNum,sendAckNum);
+    //printf("A_output : \n");
 
-    char smgs[20];
-    //smgs=buffer[0];
     int i=0;
-    while(buffer[i] !=0){
-        //buffer[i]=buffer[i+1];
-        i++;
-    }
+
     int j=0;
-    while(sendpktA[j].seqnum != -1){
+    while(sendpktA[j].seqnum != NOT_PKT){
         j++;
     }
-    //if(smgs==0)
-        //smgs=message.data;
-    //else
+    i=0;
+    if(avlwindowA>0){
+            printf("A_output : sending\n");
+        while(message.data[i] !=0){
+            sendpktA[j].payload[i]=message.data[i];
+            tempcs += (int)message.data[i];
+            i++;
+        }
+        sendpktA[j].seqnum=sendSeqNum;
+        sendpktA[j].acknum=sendSeqNum;
+        sendpktA[j].checksum=tempcs+sendSeqNum+sendSeqNum;
+        sendSeqNum = (sendSeqNum+1)%windowA;
+        avlwindowA--;
+        starttimer(0,TIME_OUT);
+        tolayer3(0,sendpktA[j]);
+    }
+    else{
+        printf("A_output : buffered\n");
+        i=0;
+        while(buffer[i] !=0){
+            i++;
+        }
+        if(i < bufSize){
+            buffer[i]=(char*)malloc(sizeof(char)*20);
+            strcpy(buffer[i],message.data);
+        }
+    }
 
-    buffer[i]=(char*)malloc(sizeof(char)*20);
-    strcpy(buffer[i],message.data);
+    /*
     i=0;
     int k;
+
     while(sendSeqNum<lsegNum+windowA){
         if(buffer[i] != 0){
 
@@ -111,6 +135,7 @@ void A_output(struct msg message)
         else
             break;
     }
+    */
 }
 
 /* need be completed only for extra credit */
@@ -122,53 +147,131 @@ void B_output(struct msg message)
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(struct pkt packet)
 {
-   //printf("A_input : ack - %d, sSeg - %d, sAck - %d\n",ackA,sendSeqNum,sendAckNum);
-   int tempcs=0;
-   //if(ackA==0){
+        int tempcs=0;
         tempcs=packet.acknum+packet.seqnum;
         int i=0;
 
-        //printf("A_input : checksum --- %d\n",tempcs);
-        //int i=0;
         while(packet.payload[i] !=0){
             tempcs += (int)packet.payload[i];
             i++;
         }
-        //printf("A_input : packet checksum %d\n",packet.checksum);
-        //printf("A_input : checksum %d\n",tempcs);
 
-        if((tempcs != packet.checksum) ){
-            printf("A_input : corrupt checksum : sSeg - %d, snum - %d, ackn - %d\n",\
-                   sendSeqNum,packet.seqnum,packet.acknum);
+        if((tempcs == packet.checksum) ){  //not corrupted
+            if(lastAckA != packet.acknum){ //ack correct
+                printf("A_input : successful : \n");
+                int temp=0;
+                if(lsegNum<=packet.acknum){ // greater than expected
+                    int j=0;
+                    while( j <= (lsegNum-temp)){
+                        sendpktA[j].seqnum=NOT_PKT;
+                        j++;
+                    }
+                    i=0;
+                    temp=j;
+                    while(sendpktA[j].seqnum != NOT_PKT){
+                        sendpktA[i]=sendpktA[j];
+                        sendpktA[j].seqnum = NOT_PKT;
+                        i++;
+                        j++;
+                    }
+                    for(i=0;i<temp;i++)
+                        stoptimer(0);
+                    avlwindowA += temp;
+                }
+                else if(packet.acknum >= 0){ // less than expected
+                    int j=0;
+                    i=lsegNum;
+                    while( i < windowA){
+                        sendpktA[j].seqnum=NOT_PKT;
+                        j++;
+                    }
+                    i=0;
+                    while( i <= packet.acknum){
+                        sendpktA[j].seqnum=NOT_PKT;
+                        j++;
+                    }
+                    i=0;
+                    temp=j;
+                    while(sendpktA[j].seqnum != NOT_PKT){
+                        sendpktA[i]=sendpktA[j];
+                        sendpktA[j].seqnum = NOT_PKT;
+                        i++;
+                        j++;
+                    }
+                    for(i=0;i<temp;i++)
+                        stoptimer(0);
+                    avlwindowA += temp;
+                }
+
+                lastAckA=packet.acknum; // last ack
+                lsegNum = (lastAckA+1)%windowA; // slide window
+
+                i=0;
+                int k;
+                char smgs[20];
+                // send if buffer available
+                int j=0;
+                while(sendpktA[j].seqnum != NOT_PKT){
+                    j++;
+                }
+                while(avlwindowA > 0){
+                    if(buffer[i] != 0){
+                        strcpy(smgs,buffer[i]);
+                        k=0;
+                        tempcs=0;
+                        while(smgs[k] !=0){
+                            sendpktA[j].payload[k]=smgs[k];
+                            tempcs += (int)smgs[k];
+                            k++;
+                        }
+                        sendpktA[j].seqnum=sendSeqNum;
+                        sendpktA[j].acknum=sendSeqNum;
+                        sendpktA[j].checksum=tempcs+sendSeqNum+sendSeqNum;
+
+                        starttimer(0,TIME_OUT);
+
+                        sendSeqNum = (sendSeqNum+1)%windowA;
+                        avlwindowA--;
+                        i++;
+                        j++;
+                        free(buffer[i]);
+                        buffer[i]=0;
+                        tolayer3(0,sendpktA[j]);
+                    }
+                    else
+                        break;
+                }
+                j=0;
+                if(i != 0){ // if buffer sent
+                    while(buffer[i] != 0){
+                        buffer[j]=(char*)malloc(sizeof(char)*20);
+                        strcpy(buffer[j],buffer[i]);
+                        free(buffer[i]);
+                        i++;
+                        j++;
+                    }
+                }
+            }
+            else{ //duplicate ack
+                i=0;
+                while(sendpktA[i].seqnum != NOT_PKT){
+                    starttimer(0,TIME_OUT);
+                    tolayer3(0,sendpktA[i]);
+                    i++;
+                }
+            }
         }
-        else if(( packet.acknum >= sendSeqNum)){
+        else{  // corrupted
+            printf("A_input : corrupt checksum : \n");
+        }
+        /*else if(( packet.acknum >= sendSeqNum)){
             printf("A_input : corrupt ack--send : sSeg - %d, snum - %d, ackn - %d\n",\
                     sendSeqNum,packet.seqnum,packet.acknum);
         }
         else if(packet.acknum < lsegNum){
             printf("noting\n");
-        }
-        else{
-            printf("A_input : successful : askA --- %d sendSeg -- %d\n",ackA,sendSeqNum);
-            int temp=lsegNum;
-            lsegNum=packet.acknum+1;
-            int j=0;
-            while( j < (lsegNum-temp)){
-                sendpktA[j].seqnum=-1;
-                j++;
-            }
-            i=0;
-            while(sendpktA[j].seqnum != -1){
-                sendpktA[i]=sendpktA[j];
-                sendpktA[j].seqnum = -1;
-                i++;
-                j++;
-            }
-            stoptimer(0);
-            printf("timer - stop-1\n");
-            starttimer(0,1000);
-                printf("timer - start-2\n");
-        }
+        }*/
+
     //}
 }
 int nn=0;
@@ -176,11 +279,9 @@ int nn=0;
 void A_timerinterrupt(void)
 {
     printf("A_timerinterrupt\n");
-    //stoptimer(0);
     int i=0;
-    while(sendpktA[i].seqnum != -1){
-        if(i==0)
-            starttimer(0,1000);
+    while(sendpktA[i].seqnum != NOT_PKT){
+        starttimer(0,TIME_OUT);
         tolayer3(0,sendpktA[i]);
         i++;
     }
@@ -192,19 +293,21 @@ void A_init(void)
 {
     lsegNum=0;
     sendSeqNum=0;
-    windowA=3;
+    windowA=8;
     bufSize=10;
+    lastAckA= 8;
+    avlwindowA=8;
+
     buffer=(char**)malloc(bufSize*(sizeof(char*)));
     int i=0;
 
     for( ;i<bufSize;i++){
-            //printf("testinnnnn \n");
         buffer[i]=0;
     }
 
-    sendpktA=(struct pkt*)malloc(sizeof(struct pkt)*windowA);
-    for(i=0;i<windowA;i++){
-        sendpktA[i].seqnum =-1;
+    sendpktA=(struct pkt*)malloc(sizeof(struct pkt)*(windowA+2));
+    for(i=0;i<windowA+2;i++){
+        sendpktA[i].seqnum = NOT_PKT;
     }
 }
 
@@ -213,7 +316,6 @@ void A_init(void)
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 void B_input(struct pkt packet)
 {
-    //printf("B_input : askA --- %d sendAck -- %d\n",ackA,sendAckNum);
     int tempcs=0;
     tempcs=packet.acknum+packet.seqnum;
 
@@ -225,54 +327,35 @@ void B_input(struct pkt packet)
 
     struct pkt pktB;
     pktB.payload[0]='A';
-        pktB.payload[1]='C';
-        pktB.payload[2]='K';
-        pktB.payload[3]=0;
+    pktB.payload[1]='C';
+    pktB.payload[2]='K';
+    pktB.payload[3]=0;
 
-    if((tempcs != packet.checksum)){
+    if((tempcs != packet.checksum)){ // corrupted
+        printf("B_input : corrupt checksum : \n");
 
-        //if((tempcs != packet.checksum) ){
-            printf("B_input : corrupt checksum : sAck - %d, snum - %d, ackn - %d\n",\
-                   sendAckNum,packet.seqnum,packet.acknum);
-        //}
-        //if((packet.seqnum != sendAckNum)){
-
-        //}
-        pktB.acknum=sendAckNum-1;
-
-        pktB.seqnum=sendSeqNum;
-        pktB.checksum=pktB.acknum+sendSeqNum+'A'+'C'+'K';
+        pktB.acknum=lastAckB;
+        pktB.seqnum=sendAckNum;
+        pktB.checksum=pktB.acknum+sendAckNum+'A'+'C'+'K';
         tolayer3(1,pktB);
-    }
-    else if(packet.seqnum != sendAckNum){
-        if(packet.seqnum<sendAckNum){
-            printf("B_input : successful duplicate : askA --- %d sendSeg -- %d\n",ackA,sendAckNum);
-        }
-        else{
-            printf("B_input : ack corrupt : sAck - %d, snum - %d, ackn - %d\n",\
-                   sendAckNum,packet.seqnum,packet.acknum);
-        }
-        pktB.acknum=sendAckNum-1;
-
-        pktB.seqnum=sendSeqNum;
-        pktB.checksum=pktB.acknum+sendSeqNum+'A'+'C'+'K';
-        tolayer3(1,pktB);
-
     }
     else{
-        pktB.acknum=sendAckNum;
-
-            printf("B_input : successful : askA --- %d sendAck -- %d\n",ackA,sendAckNum);
-
-        //else{
-       // sendpktB=packet;
-        sendAckNum++;
-        //}
-        pktB.seqnum=sendSeqNum;
-        pktB.checksum=pktB.acknum+sendSeqNum+'A'+'C'+'K';
-
-        //printf("B_input : checksum %d %d %d \n",pktB.checksum,sendAckNum,sendSeqNum);
-        tolayer3(1,pktB);
+        if(packet.seqnum == sendAckNum){
+            pktB.acknum=sendAckNum;
+            printf("B_input : successful : \n");
+            lastAckB=sendAckNum;
+            sendAckNum=(sendAckNum+1)%windowB;            //}
+            pktB.seqnum=sendAckNum;
+            pktB.checksum=pktB.acknum+sendAckNum+'A'+'C'+'K';
+            tolayer5(1,packet.payload);
+            tolayer3(1,pktB);
+        }
+        else{
+            pktB.acknum=lastAckB;
+            pktB.seqnum=sendAckNum;
+            pktB.checksum=pktB.acknum+sendAckNum+'A'+'C'+'K';
+            tolayer3(1,pktB);
+        }
     }
 }
 
@@ -287,6 +370,8 @@ void B_timerinterrupt(void)
 void B_init(void)
 {
     sendAckNum=0;
+    lastAckB=-1;
+    windowB=8;
     //sendpktB=0;
     //ackNumCount=0;
 }
@@ -612,13 +697,13 @@ void starttimer(int AorB /* A or B is trying to start timer */, float increment)
         printf("          START TIMER: starting timer at %f\n", time);
     /* be nice: check to see if timer is already started, if so, then  warn */
     /* for (q=evlist; q!=NULL && q->next!=NULL; q = q->next)  */
-    for (q = evlist; q != NULL; q = q->next)
+   /* for (q = evlist; q != NULL; q = q->next)
         if ((q->evtype == TIMER_INTERRUPT && q->eventity == AorB))
         {
             printf("Warning: attempt to start a timer that is already started\n");
             return;
         }
-
+    */
     /* create future event for when timer goes off */
     evptr = (struct event *)malloc(sizeof(struct event));
     evptr->evtime = time + increment;

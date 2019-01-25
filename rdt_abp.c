@@ -47,21 +47,21 @@ void tolayer5(int AorB, char datasent[20]);
 
 /********* STUDENTS WRITE THE NEXT SEVEN ROUTINES *********/
 
-int isDataAvailable;
+
 int sendSeqNum; //0,1
 int ackA;
 int sendAckNum; //0,1
-//int seqNumCount;
-//int ackNumCount;
 struct pkt sendpktA;
 struct pkt sendpktB;
+
+#define TIME_OUT 11
 
 /* called from layer 5, passed the data to be sent to other side */
 void A_output(struct msg message)
 {
     int tempcs=0;
-    //tempcs=seqNumCount+ackNumCount;
-    printf("A_output : ack - %d, sSeg - %d, sAck - %d\n",ackA,sendSeqNum,sendAckNum);
+
+    printf("A_output : \n");
     int i=0;
     if(ackA){
         while(message.data[i] !=0){
@@ -73,7 +73,7 @@ void A_output(struct msg message)
         sendpktA.acknum=sendSeqNum;
         sendpktA.checksum=tempcs+sendSeqNum+sendSeqNum;
         ackA=0;
-        starttimer(0,1000);
+        starttimer(0,TIME_OUT);
         tolayer3(0,sendpktA);
     }
 }
@@ -87,31 +87,26 @@ void B_output(struct msg message)
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(struct pkt packet)
 {
-   //printf("A_input : ack - %d, sSeg - %d, sAck - %d\n",ackA,sendSeqNum,sendAckNum);
+   printf("A_input : \n");
+
    int tempcs=0;
    if(ackA==0){
         tempcs=packet.acknum+packet.seqnum;
         int i=0;
 
-        //printf("A_input : checksum --- %d\n",tempcs);
-        //int i=0;
         while(packet.payload[i] !=0){
             tempcs += (int)packet.payload[i];
             i++;
         }
-        //printf("A_input : packet checksum %d\n",packet.checksum);
-        //printf("A_input : checksum %d\n",tempcs);
 
         if((tempcs != packet.checksum) ){
-            printf("A_input : corrupt checksum : sSeg - %d, snum - %d, ackn - %d\n",\
-                   sendSeqNum,packet.seqnum,packet.acknum);
+            printf("A_input : corrupt checksum : \n");
         }
         else if((packet.acknum != sendSeqNum)){
-            printf("A_input : corrupt ack--send : sSeg - %d, snum - %d, ackn - %d\n",\
-                    sendSeqNum,packet.seqnum,packet.acknum);
+            printf("A_input : corrupt ACK\n");
         }
         else{
-            printf("A_input : successful : askA --- %d sendSeg -- %d\n",ackA,sendSeqNum);
+            printf("A_input : successful \n");
             ackA=1;
             if(sendSeqNum==0)
                 sendSeqNum=1;
@@ -125,9 +120,9 @@ int nn=0;
 /* called when A's timer goes off */
 void A_timerinterrupt(void)
 {
-    printf("A_timerinterrupt\n");
-        starttimer(0,1000);
-        tolayer3(0,sendpktA);
+    printf("<----------A_timerinterrupt------------>\n");
+    starttimer(0,TIME_OUT);
+    tolayer3(0,sendpktA);
 }
 
 /* the following routine will be called once (only) before any other */
@@ -136,8 +131,6 @@ void A_init(void)
 {
     ackA=1;
     sendSeqNum=0;
-    //seqNumCount=0;
-    //sendpktA=0;
 }
 
 /* Note that with simplex transfer from a-to-B, there is no B_output() */
@@ -145,7 +138,7 @@ void A_init(void)
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 void B_input(struct pkt packet)
 {
-    //printf("B_input : askA --- %d sendAck -- %d\n",ackA,sendAckNum);
+    printf("B_input : \n");
     int tempcs=0;
     tempcs=packet.acknum+packet.seqnum;
 
@@ -157,66 +150,56 @@ void B_input(struct pkt packet)
 
     struct pkt pktB;
     pktB.payload[0]='A';
-        pktB.payload[1]='C';
-        pktB.payload[2]='K';
-        pktB.payload[3]=0;
+    pktB.payload[1]='C';
+    pktB.payload[2]='K';
+    pktB.payload[3]=0;
 
     if((tempcs != packet.checksum)){
 
-        if((tempcs != packet.checksum) ){
-            printf("B_input : corrupt checksum : sAck - %d, snum - %d, ackn - %d\n",\
-                   sendAckNum,packet.seqnum,packet.acknum);
-        }
-        //if((packet.seqnum != sendAckNum)){
-
-        //}
+        printf("B_input : corrupt checksum : \n");
 
         if(sendAckNum==0)
             pktB.acknum=1;
         else
             pktB.acknum=0;
 
-        pktB.seqnum=sendSeqNum;
-        pktB.checksum=pktB.acknum+sendSeqNum+'A'+'C'+'K';
+        pktB.seqnum=sendAckNum;
+        pktB.checksum=pktB.acknum+sendAckNum+'A'+'C'+'K';
         tolayer3(1,pktB);
     }
     else if(packet.seqnum != sendAckNum){
         if(sendpktB.acknum==packet.acknum && sendpktB.checksum==packet.checksum && sendpktB.seqnum==packet.seqnum){
-            printf("B_input : successful duplicate : askA --- %d sendSeg -- %d\n",ackA,sendAckNum);
+            if(strcmp(packet.payload,sendpktB.payload)==0)
+                printf("B_input : duplicate packet : \n");
+            else
+                printf("B_input : corrupted : \n");
         }
         else{
-            printf("B_input : ack corrupt : sAck - %d, snum - %d, ackn - %d\n",\
-                   sendAckNum,packet.seqnum,packet.acknum);
+            printf("B_input : ack corrupt : \n");
         }
+
         if(sendAckNum==0)
             pktB.acknum=1;
         else
             pktB.acknum=0;
 
-        pktB.seqnum=sendSeqNum;
-        pktB.checksum=pktB.acknum+sendSeqNum+'A'+'C'+'K';
+        pktB.seqnum=sendAckNum;
+        pktB.checksum=pktB.acknum+sendAckNum+'A'+'C'+'K';
         tolayer3(1,pktB);
-
     }
     else{
         pktB.acknum=sendAckNum;
+        printf("B_input : successful : \n");
 
-            printf("B_input : successful : askA --- %d sendAck -- %d\n",ackA,sendAckNum);
-
-        //else{
         sendpktB=packet;
-            if(sendAckNum==0)
-                sendAckNum=1;
-            else
-                sendAckNum=0;
-        //}
-        pktB.seqnum=sendSeqNum;
-        pktB.checksum=pktB.acknum+sendSeqNum+'A'+'C'+'K';
-        pktB.payload[0]='A';
-        pktB.payload[1]='C';
-        pktB.payload[2]='K';
-        pktB.payload[3]=0;
-        //printf("B_input : checksum %d %d %d \n",pktB.checksum,sendAckNum,sendSeqNum);
+        if(sendAckNum==0)
+            sendAckNum=1;
+        else
+            sendAckNum=0;
+
+        pktB.seqnum=sendAckNum;
+        pktB.checksum=pktB.acknum+sendAckNum+'A'+'C'+'K';
+        tolayer5(1,packet.payload);
         tolayer3(1,pktB);
     }
 }
@@ -232,8 +215,6 @@ void B_timerinterrupt(void)
 void B_init(void)
 {
     sendAckNum=0;
-    //sendpktB=0;
-    //ackNumCount=0;
 }
 
 /*****************************************************************
