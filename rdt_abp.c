@@ -54,6 +54,10 @@ int sendAckNum; //0,1
 struct pkt sendpktA;
 struct pkt sendpktB;
 
+int nmgst;
+
+FILE *file;
+
 #define TIME_OUT 11
 
 /* called from layer 5, passed the data to be sent to other side */
@@ -61,7 +65,6 @@ void A_output(struct msg message)
 {
     int tempcs=0;
 
-    printf("A_output : \n");
     int i=0;
     if(ackA){
         while(message.data[i] !=0){
@@ -74,8 +77,12 @@ void A_output(struct msg message)
         sendpktA.checksum=tempcs+sendSeqNum+sendSeqNum;
         ackA=0;
         starttimer(0,TIME_OUT);
+        fprintf(file,"A_output : send    segnum : %d    eacknum : %d \n",sendSeqNum,sendSeqNum);
         tolayer3(0,sendpktA);
     }
+    else
+        fprintf(file,"A_output : ignored \n");
+
 }
 
 /* need be completed only for extra credit */
@@ -87,7 +94,6 @@ void B_output(struct msg message)
 /* called from layer 3, when a packet arrives for layer 4 */
 void A_input(struct pkt packet)
 {
-   printf("A_input : \n");
 
    int tempcs=0;
    if(ackA==0){
@@ -100,14 +106,15 @@ void A_input(struct pkt packet)
         }
 
         if((tempcs != packet.checksum) ){
-            printf("A_input : corrupt checksum : \n");
+            fprintf(file,"A_input : corrupt-checksum : ignored\n");
         }
         else if((packet.acknum != sendSeqNum)){
-            printf("A_input : corrupt ACK\n");
+            fprintf(file,"A_input : NACK : ignored   segnum : %d   acknum : %d \n",sendSeqNum,packet.acknum);
         }
         else{
-            printf("A_input : successful \n");
+            fprintf(file,"A_input : ACK      segnum : %d    acknum : %d \n",sendSeqNum,packet.acknum);
             ackA=1;
+            nmgst++;
             if(sendSeqNum==0)
                 sendSeqNum=1;
             else
@@ -115,12 +122,14 @@ void A_input(struct pkt packet)
             stoptimer(0);
         }
     }
+    else
+        fprintf(file,"A_input : ignored \n");
 }
 int nn=0;
 /* called when A's timer goes off */
 void A_timerinterrupt(void)
 {
-    printf("<----------A_timerinterrupt------------>\n");
+    fprintf(file,"A_timerinterrupt : re-send    segnum : %d    eacknum : %d \n",sendSeqNum,sendSeqNum);
     starttimer(0,TIME_OUT);
     tolayer3(0,sendpktA);
 }
@@ -131,6 +140,13 @@ void A_init(void)
 {
     ackA=1;
     sendSeqNum=0;
+    nmgst=0;
+    file=fopen("output_abp.doc","w");
+    fprintf(file,"Number of simulation : 10\n");
+    fprintf(file,"Loss probability : 0.1\n");
+    fprintf(file,"Corruption probability : 0.3\n");
+    fprintf(file,"Trace level : 2\n");
+    fprintf(file,"Time out : 11\n\n");
 }
 
 /* Note that with simplex transfer from a-to-B, there is no B_output() */
@@ -138,7 +154,6 @@ void A_init(void)
 /* called from layer 3, when a packet arrives for layer 4 at B*/
 void B_input(struct pkt packet)
 {
-    printf("B_input : \n");
     int tempcs=0;
     tempcs=packet.acknum+packet.seqnum;
 
@@ -156,7 +171,7 @@ void B_input(struct pkt packet)
 
     if((tempcs != packet.checksum)){
 
-        printf("B_input : corrupt checksum : \n");
+        fprintf(file,"B_input : corrupt-checksum : send NACK \n");
 
         if(sendAckNum==0)
             pktB.acknum=1;
@@ -168,29 +183,21 @@ void B_input(struct pkt packet)
         tolayer3(1,pktB);
     }
     else if(packet.seqnum != sendAckNum){
-        if(sendpktB.acknum==packet.acknum && sendpktB.checksum==packet.checksum && sendpktB.seqnum==packet.seqnum){
-            if(strcmp(packet.payload,sendpktB.payload)==0)
-                printf("B_input : duplicate packet : \n");
-            else
-                printf("B_input : corrupted : \n");
-        }
-        else{
-            printf("B_input : ack corrupt : \n");
-        }
+        fprintf(file,"B_input : duplicate-packet : send previous-ACK \n");
 
         if(sendAckNum==0)
             pktB.acknum=1;
         else
             pktB.acknum=0;
 
-        pktB.seqnum=sendAckNum;
-        pktB.checksum=pktB.acknum+sendAckNum+'A'+'C'+'K';
+        pktB.seqnum=pktB.acknum;
+        pktB.checksum=pktB.acknum+pktB.acknum+'A'+'C'+'K';
         tolayer3(1,pktB);
     }
     else{
         pktB.acknum=sendAckNum;
-        printf("B_input : successful : \n");
-
+        fprintf(file,"B_input : received    acknum : %d    eacknum : %d \n",packet.acknum,sendAckNum);
+        fprintf(file,"B_input : send to upper layer and send ACK \n");
         sendpktB=packet;
         if(sendAckNum==0)
             sendAckNum=1;
@@ -359,6 +366,8 @@ terminate:
     printf(
         " Simulator terminated at time %f\n after sending %d msgs from layer5\n",
         time, nsim);
+    fprintf(file,"\nSuccessfully transferred message from A to B : %d\n",nmgst);
+    fclose(file);
 }
 
 void init() /* initialize the simulator */
