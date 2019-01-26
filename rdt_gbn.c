@@ -62,22 +62,22 @@ int sendAckNum;
 int lastAckB;
 int windowB;
 
+int nmgst;
+FILE *file;
+
 /* called from layer 5, passed the data to be sent to other side */
 void A_output(struct msg message)
 {
     int tempcs=0;
 
-    //printf("A_output : \n");
-
     int i=0;
-
     int j=0;
     while(sendpktA[j].seqnum != NOT_PKT){
         j++;
     }
     i=0;
     if(avlwindowA>0){
-            printf("A_output : sending\n");
+        fprintf(file,"A_output : send    segnum : %d    eacknum : %d \n",sendSeqNum,sendSeqNum);
         while(message.data[i] !=0){
             sendpktA[j].payload[i]=message.data[i];
             tempcs += (int)message.data[i];
@@ -92,50 +92,18 @@ void A_output(struct msg message)
         tolayer3(0,sendpktA[j]);
     }
     else{
-        printf("A_output : buffered\n");
         i=0;
-        while(buffer[i] !=0){
+        while((i<bufSize) && (buffer[i] !=0)){
             i++;
         }
         if(i < bufSize){
+            fprintf(file,"A_output : buffered\n");
             buffer[i]=(char*)malloc(sizeof(char)*20);
             strcpy(buffer[i],message.data);
         }
+        if(i==bufSize)
+            fprintf(file,"A_output : buffer full : refused\n");
     }
-
-    /*
-    i=0;
-    int k;
-
-    while(sendSeqNum<lsegNum+windowA){
-        if(buffer[i] != 0){
-
-            strcpy(smgs,buffer[i]);
-            k=0;
-            tempcs=0;
-            while(smgs[k] !=0){
-                sendpktA[j].payload[k]=smgs[k];
-                tempcs += (int)smgs[k];
-                k++;
-            }
-            sendpktA[j].seqnum=sendSeqNum;
-            sendpktA[j].acknum=sendSeqNum;
-            sendpktA[j].checksum=tempcs+sendSeqNum+sendSeqNum;
-            if(lsegNum==sendSeqNum){
-                starttimer(0,1000);
-                printf("timer - start-1\n");
-            }
-            sendSeqNum++;
-            i++;
-            j++;
-            free(buffer[i]);
-            buffer[i]=0;
-            tolayer3(0,sendpktA[j]);
-        }
-        else
-            break;
-    }
-    */
 }
 
 /* need be completed only for extra credit */
@@ -157,12 +125,12 @@ void A_input(struct pkt packet)
         }
 
         if((tempcs == packet.checksum) ){  //not corrupted
-            if(lastAckA != packet.acknum){ //ack correct
-                printf("A_input : successful : \n");
+            if((lastAckA != packet.acknum) && (packet.acknum>=0) && (packet.acknum<windowA)){ //ack correct
+                fprintf(file,"A_input : ACK    lacknum : %d    acknum : %d   segnum : %d\n",lsegNum,packet.acknum,sendSeqNum);
                 int temp=0;
                 if(lsegNum<=packet.acknum){ // greater than expected
                     int j=0;
-                    while( j <= (lsegNum-temp)){
+                    while( j <= (lsegNum-packet.acknum)){
                         sendpktA[j].seqnum=NOT_PKT;
                         j++;
                     }
@@ -205,6 +173,7 @@ void A_input(struct pkt packet)
 
                 lastAckA=packet.acknum; // last ack
                 lsegNum = (lastAckA+1)%windowA; // slide window
+                nmgst += temp; // successfully sent message
 
                 i=0;
                 int k;
@@ -228,6 +197,7 @@ void A_input(struct pkt packet)
                         sendpktA[j].acknum=sendSeqNum;
                         sendpktA[j].checksum=tempcs+sendSeqNum+sendSeqNum;
 
+                        fprintf(file,"A_input : send from buffer   segnum : %d    eacknum : %d \n",sendSeqNum,sendSeqNum);
                         starttimer(0,TIME_OUT);
 
                         sendSeqNum = (sendSeqNum+1)%windowA;
@@ -243,7 +213,7 @@ void A_input(struct pkt packet)
                 }
                 j=0;
                 if(i != 0){ // if buffer sent
-                    while(buffer[i] != 0){
+                    while((i<bufSize) && (buffer[i] != 0)){
                         buffer[j]=(char*)malloc(sizeof(char)*20);
                         strcpy(buffer[j],buffer[i]);
                         free(buffer[i]);
@@ -255,6 +225,7 @@ void A_input(struct pkt packet)
             else{ //duplicate ack
                 i=0;
                 while(sendpktA[i].seqnum != NOT_PKT){
+                    fprintf(file,"A_input : retransmit   segnum : %d   eacknum : %d\n",sendpktA[i].seqnum,sendpktA[i].acknum);
                     starttimer(0,TIME_OUT);
                     tolayer3(0,sendpktA[i]);
                     i++;
@@ -262,25 +233,17 @@ void A_input(struct pkt packet)
             }
         }
         else{  // corrupted
-            printf("A_input : corrupt checksum : \n");
+            fprintf(file,"A_input : corrupted checksum : ignored\n");
         }
-        /*else if(( packet.acknum >= sendSeqNum)){
-            printf("A_input : corrupt ack--send : sSeg - %d, snum - %d, ackn - %d\n",\
-                    sendSeqNum,packet.seqnum,packet.acknum);
-        }
-        else if(packet.acknum < lsegNum){
-            printf("noting\n");
-        }*/
-
-    //}
 }
 int nn=0;
 /* called when A's timer goes off */
 void A_timerinterrupt(void)
 {
-    printf("A_timerinterrupt\n");
+   // fprintf(file,"\n\ntesting -- --------------------------------%d\n\n",sendSeqNum);
     int i=0;
     while(sendpktA[i].seqnum != NOT_PKT){
+        fprintf(file,"A_timerinterrupt : retransmit   segnum : %d   eacknum : %d\n",sendpktA[i].seqnum,sendpktA[i].acknum);
         starttimer(0,TIME_OUT);
         tolayer3(0,sendpktA[i]);
         i++;
@@ -295,8 +258,9 @@ void A_init(void)
     sendSeqNum=0;
     windowA=8;
     bufSize=10;
-    lastAckA= 8;
+    lastAckA= 10;
     avlwindowA=8;
+    nmgst=0;
 
     buffer=(char**)malloc(bufSize*(sizeof(char*)));
     int i=0;
@@ -332,7 +296,7 @@ void B_input(struct pkt packet)
     pktB.payload[3]=0;
 
     if((tempcs != packet.checksum)){ // corrupted
-        printf("B_input : corrupt checksum : \n");
+        fprintf(file,"B_input : corrupted checksum : send NACK\n");
 
         pktB.acknum=lastAckB;
         pktB.seqnum=sendAckNum;
@@ -342,15 +306,17 @@ void B_input(struct pkt packet)
     else{
         if(packet.seqnum == sendAckNum){
             pktB.acknum=sendAckNum;
-            printf("B_input : successful : \n");
-            lastAckB=sendAckNum;
-            sendAckNum=(sendAckNum+1)%windowB;            //}
+            fprintf(file,"B_input : received    acknum : %d    eacknum : %d \n",packet.acknum,sendAckNum);
+            fprintf(file,"B_input : send to upper layer and send ACK \n");
+            lastAckB=sendAckNum;            //}
             pktB.seqnum=sendAckNum;
+            sendAckNum=(sendAckNum+1)%windowB;
             pktB.checksum=pktB.acknum+sendAckNum+'A'+'C'+'K';
             tolayer5(1,packet.payload);
             tolayer3(1,pktB);
         }
         else{
+            fprintf(file,"B_input : duplicate-packet : send previous-ACK \n");
             pktB.acknum=lastAckB;
             pktB.seqnum=sendAckNum;
             pktB.checksum=pktB.acknum+sendAckNum+'A'+'C'+'K';
@@ -372,8 +338,13 @@ void B_init(void)
     sendAckNum=0;
     lastAckB=-1;
     windowB=8;
-    //sendpktB=0;
-    //ackNumCount=0;
+
+    file=fopen("output_gbn.doc","w");
+    fprintf(file,"Number of simulation : 20\n");
+    fprintf(file,"Loss probability : 0.2\n");
+    fprintf(file,"Corruption probability : 0.2\n");
+    fprintf(file,"Trace level : 2\n");
+    fprintf(file,"Time out : 10\n\n");
 }
 
 /*****************************************************************
@@ -518,6 +489,9 @@ terminate:
     printf(
         " Simulator terminated at time %f\n after sending %d msgs from layer5\n",
         time, nsim);
+
+    fprintf(file,"\nSuccessfully transferred message from A to B : %d\n",nmgst);
+    fclose(file);
 }
 
 void init() /* initialize the simulator */
