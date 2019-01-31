@@ -2,14 +2,20 @@
 #include<windows.h>
 #include<cstring>
 #include<string>
+#include<sstream>
+#include<cmath>
 
 
 using namespace std;
 
 string* createDataBlock(string str,int m);
 string* addCheckBits(string *str,int row,int m);
-string appendCRC(string cws,string polgen);
-string  receivedFrame(string frame,int row,float p);
+string appendCRC(string frame,string polgen);
+string  receivedFrame(string frame,float p);
+void checkCRC(string frame,string polgen);
+string* discardCRC(string frame,string rcvframe,string polgen,int row);
+string* removeCheckBits(string *str,int row);
+void showOutput(string *output,int row);
 
 int main(){
 
@@ -53,13 +59,23 @@ int main(){
     cout<<cws<<endl<<endl;
 
     cout<<"Data bits after appending CRC checksum <sent frame> : "<<endl;
-    cout<<cws;
-    cws=cws+polgen;
-    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 12);
-    cout<<polgen<<endl<<endl;
-    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 15);
+    string frame=appendCRC(cws,polgen);
 
-    receivedFrame(cws,row,p);
+
+    string rcvframe=receivedFrame(frame,p);
+
+    checkCRC(rcvframe,polgen);
+
+    cout<<"Data block after removing CRC checksum bits :"<<endl;
+    string* rcvblock=discardCRC(frame,rcvframe,polgen,row);
+    cout<<endl;
+
+    cout<<"Data block after removing check bits : "<<endl;
+    string* wcbits=removeCheckBits(rcvblock,row);
+    cout<<endl;
+
+    showOutput(wcbits,row);
+    cout<<endl;
 
     return 0;
 }
@@ -164,22 +180,244 @@ string* addCheckBits(string *str,int row,int m){
     return block;
 }
 
-string appendCRC(string cws,string polgen){
+string appendCRC(string frame,string polgen){
+    string tempf=frame;
+    int plen=polgen.length();
+    for(int i=0;i<plen-1;i++)
+        frame=frame+"0";
+    int flen=frame.length();
 
-}
-
-string receivedFrame(string frame,int row,float p){
-    string rcvframe;
-    int len=frame.length();
-    float fp;
-    for(int i=0;i<len;i++){
-        fp=rand()/RAND_MAX*1.0;
-        if(fp>p)
-            cout<<"fp = "<<fp<<"  max = "<<RAND_MAX<<endl;
+    int *temp=new int[plen];
+    int *divisor=new int[plen];
+    int w,idx=0;
+    for(int i=0;i<plen;i++){
+        w=(int)polgen.at(i)-'0';
+        divisor[i]=w;
     }
+
+    idx=0;
+    int pos=0;
+    for(int i=0;i<flen;i++){
+        w=(int)frame.at(i)-'0';
+        if(idx==0){
+            if(w==0)
+                continue;
+        }
+        temp[idx]=w;
+        idx++;
+        //cout<<"idx  "<<idx<<endl;
+        if(idx>=plen){
+            for(int j=0;j<plen;j++){
+                if(temp[j]==divisor[j])
+                    temp[j]=0;
+                else
+                    temp[j]=1;
+            }
+            idx=0;
+            int k;
+            for(k=0;k<plen;k++){
+                if(temp[k]==1)
+                    break;
+            }
+            pos=k;
+            while(k<plen){
+                temp[idx]=temp[k];
+                idx++;
+                k++;
+            }
+        }
+    }
+
+    for(int j=plen-1;j>0;j--){
+        temp[j]=temp[idx-1];
+        temp[idx-1]=0;
+        idx--;
+        if(idx<=0)
+            break;
+    }
+    stringstream s;
+    for(int i=1;i<plen;i++){
+        s<<temp[i];
+    }
+    cout<<tempf;
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 11);
+    cout<<s.str()<<endl<<endl;
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 15);
+
+    frame=tempf+s.str();
+
     return frame;
 }
 
+string receivedFrame(string frame,float p){
+    string rcvframe;
+    int len=frame.length();
+    float fp;
+    int u,v;
+    for(int i=0;i<len;i++){
+        fp=1.0*rand()/RAND_MAX;
+        if(fp<p){
+            u=(int)frame.at(i)-'0';
+            if(u==0)
+                rcvframe=rcvframe+"1";
+            else
+                rcvframe=rcvframe+"0";
+        }
+        else{
+            rcvframe=rcvframe+frame.at(i);
+        }
+    }
+
+    cout<<"received frame"<<endl;
+    for(int i=0;i<len;i++){
+        u=(int)frame.at(i)-'0';
+        v=(int)rcvframe.at(i)-'0';
+        if(u == v){
+            SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 15);
+            cout << v;
+        }
+        else{
+            SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 12);
+            cout << v;
+        }
+    }
+    cout<<endl<<endl;
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 15);
 
 
 
+    return rcvframe;
+}
+
+void checkCRC(string frame,string polgen){
+    int plen=polgen.length();
+    int flen=frame.length();
+
+    int *temp=new int[plen];
+    int *divisor=new int[plen];
+    int w,idx=0;
+    for(int i=0;i<plen;i++){
+        w=(int)polgen.at(i)-'0';
+        divisor[i]=w;
+    }
+
+    idx=0;
+    int pos=0;
+    for(int i=0;i<flen;i++){
+        w=(int)frame.at(i)-'0';
+        if(idx==0){
+            if(w==0)
+                continue;
+        }
+        temp[idx]=w;
+        idx++;
+        //cout<<"idx  "<<idx<<endl;
+        if(idx>=plen){
+            for(int j=0;j<plen;j++){
+                if(temp[j]==divisor[j])
+                    temp[j]=0;
+                else
+                    temp[j]=1;
+            }
+            idx=0;
+            int k;
+            for(k=0;k<plen;k++){
+                if(temp[k]==1)
+                    break;
+            }
+            pos=k;
+            while(k<plen){
+                temp[idx]=temp[k];
+                idx++;
+                k++;
+            }
+        }
+    }
+
+    int f=0;
+    for(int i=0;i<plen;i++){
+        if(temp[i]==1)
+            f=1;
+    }
+    if(f==1)
+        cout << "Result of CRC checksum matching : error detected"<<endl;
+    else
+        cout << "Result of CRC checksum matching : no error detected"<<endl;
+
+    cout<<endl;
+}
+
+string* discardCRC(string frame,string rcvframe,string polgen,int row){
+    int plen=polgen.length();
+    int flen=rcvframe.length();
+
+    //string rstr=rcvframe.substr(0,);
+    flen=flen-plen+1;
+    string *str=new string[row];
+
+    //int len=flen/row;
+    int u,v,j;
+    for(int i=0;i<row;i++){
+        j=i;
+        while(j<flen){
+            u=(int)frame.at(j)-'0';
+            v=(int)rcvframe.at(j)-'0';
+            if(u == v){
+                SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 15);
+                cout << v;
+            }
+            else{
+                SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 12);
+                cout << v;
+            }
+            str[i]=str[i]+rcvframe.at(j);
+            j=j+row;
+        }
+        cout<<endl;
+    }
+    SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE), 15);
+
+    return str;
+}
+
+string *removeCheckBits(string *str,int row){
+    int len=str[0].length();
+    string *retblock=new string[row];
+
+    int k=1;
+    for(int i=0;i<row;i++){
+        k=1;
+        for(int j=0;j<len;j++){
+            if((k-1) != j){
+                retblock[i]=retblock[i]+str[i].at(j);
+            }
+            else
+                k=k*2;
+        }
+        cout<<retblock[i]<<endl;
+    }
+
+    return retblock;
+}
+
+void showOutput(string *output,int row){
+    string str;
+    int len=output[0].length();
+    int val=0,v=0,p=0;
+    char c;
+    for(int i=0;i<row;i++){
+        for(int j=0;j<len;j++){
+            v=(int)output[i].at(j)-'0';
+            val=val+v*pow(2,7-p);
+            p++;
+            if((j+1)%8 == 0){
+                c=val;
+                str=str+c;
+                val=0;
+                p=0;
+            }
+        }
+    }
+    cout<<"Output frame : "<<str<<endl;
+
+}
