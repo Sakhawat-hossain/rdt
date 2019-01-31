@@ -47,7 +47,7 @@ void tolayer5(int AorB, char datasent[20]);
 
 /********* STUDENTS WRITE THE NEXT SEVEN ROUTINES *********/
 #define NOT_PKT -1
-#define TIME_OUT 11
+#define TIME_OUT 10
 
 char **buffer;
 int bufSize;
@@ -316,7 +316,7 @@ void B_input(struct pkt packet)
             tolayer3(1,pktB);
         }
         else{
-            fprintf(file,"B_input : duplicate-packet : send previous-ACK \n");
+            fprintf(file,"B_input : duplicate-packet or wrong order : send previous-ACK \n");
             pktB.acknum=lastAckB;
             pktB.seqnum=sendAckNum;
             pktB.checksum=pktB.acknum+sendAckNum+'A'+'C'+'K';
